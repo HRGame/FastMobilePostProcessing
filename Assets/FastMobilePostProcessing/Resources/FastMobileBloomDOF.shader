@@ -151,7 +151,7 @@
 		float depth = Linear01Depth(tex2D(_CameraDepthTexture, i.uv)).r;
 		fixed4 col = tex2D(_MainTex, i.uv2);
 #else
-		float depth = tex2D(_CameraDepthTexture, i.uv).r;
+		float depth = Linear01Depth(tex2D(_CameraDepthTexture, i.uv)).r;
 		fixed4 col = tex2D(_MainTex, i.uv);
 #endif
 		fixed4 col2 = tex2D(_BlurredTex, i.uv);
@@ -184,7 +184,7 @@
 		float depth = Linear01Depth(tex2D(_CameraDepthTexture, i.uv)).r;
 		fixed4 col = tex2D(_MainTex, i.uv2);
 #else
-		float depth = tex2D(_CameraDepthTexture, i.uv).r;
+		float depth = Linear01Depth(tex2D(_CameraDepthTexture, i.uv)).r;
 		fixed4 col = tex2D(_MainTex, i.uv);
 #endif
 		fixed4 col2 = tex2D(_BlurredTex, i.uv);
