@@ -198,15 +198,17 @@
 
 	fixed4 fragRadialBlur(v2fRadialBlur i) : SV_Target
 	{
+		int radialBlurSamples = 8;
+
 		float2 blurCenter = float2(_RadialBlurCenterX, _RadialBlurCenterY);
 		float4 result = (float4)0;
 
-		for(int n = 0; n < _RadialBlurSamples; ++n)
+		for(int n = 0; n < radialBlurSamples; ++n)
 		{ 
-			float scale = 1.0f - _RadialBlurSampleDistance * 0.1f * (n / (float)(_RadialBlurSamples - 1));
+			float scale = 1.0f - _RadialBlurSampleDistance * (n / (float)(radialBlurSamples - 1));
 			result += tex2D(_MainTex, (i.uv - blurCenter) * scale + blurCenter);
 		} 
-		result /= _RadialBlurSamples;
+		result /= radialBlurSamples;
 
 		return result;
 	}

@@ -10,7 +10,7 @@
 	{
 		public bool EnableBloom = true;
 		public bool EnableDOF = true;
-		public bool EnableRadialBlur = false;
+		public bool EnableRadialBlur = true;
 
 		[Range( 0.25f, 5.5f )]
 		public float BlurSize = 1.0f;
@@ -21,23 +21,19 @@
 		[Range( 0.0f, 2.5f )]
 		public float BloomIntensity = 1.0f;
 
-		public Transform FocalTransform;	// 聚焦物体
-		public float FocalLength = 3f;		// 焦点距离（焦点到相机的距离）
-		public float FocalSize = 0.2f;		// 景深大小
-		public float Aperture = 2f;			// 光圈（景深系数，光圈越大景深越浅）
+		public Transform DOFFocalTransform;				// 聚焦物体
+		public float DOFFocalLength = 3f;				// 焦点距离（焦点到相机的距离）
+		public float DOFFocalSize = 0.2f;				// 景深大小
+		public float DOFAperture = 2f;					// 光圈（景深系数，光圈越大景深越浅）
 
-		//[Range( 0.0f, 1f )]
-		//public float RadialBlurSampleDist = 0.2f;
-		//[Range( 0.0f, 10f )]
-		//public float RadialBlurSampleStrength = 3f;
 		[Range( 0.0f, 1.0f )]
-		public float RadialBlurCenterX = 0.5f, RadialBlurCenterY = 0.5f;
-		[Range( -5.0f, 5f )]
-		public float RadialBlurSampleDistance = 1.0f;
-		[Range( 0, 16 )]
-		public int RadialBlurSamples = 8;
-		[Range( 0.0f, 10.0f )]
-		public float RadialBlurStrength = 3.0f;
+		public float RadialBlurCenterX = 0.5f;			// 径向模糊中心屏幕横坐标
+		[Range( 0.0f, 1.0f )]
+		public float RadialBlurCenterY = 0.5f;			// 径向模糊中心屏幕纵坐标
+		[Range( -0.5f, 0.5f )]
+		public float RadialBlurSampleDistance = 0.1f;	// 径向模糊采样距离
+		[Range( 0.0f, 8.0f )]
+		public float RadialBlurStrength = 3.0f;			// 径向模糊强度
 
 		Camera _camera;
 		Shader _shader;
@@ -58,7 +54,7 @@
 
 		public override bool CheckResources()
 		{
-			if( !EnableBloom && !EnableDOF && !EnableRadialBlur )
+			if( !EnableBloom && !EnableDOF && !( EnableRadialBlur && RadialBlurStrength > 0f ) )
 				return false;
 
 			CheckSupport( EnableDOF );
@@ -131,7 +127,7 @@
 
 				_material.SetTexture( "_BlurredTex", blurredRT );
 
-				if( EnableRadialBlur )
+				if( EnableRadialBlur && RadialBlurStrength > 0f )
 				{
 					destRT = RenderTexture.GetTemporary( sourceRT.width, sourceRT.height, 0, sourceRT.format );
 					destRT.filterMode = FilterMode.Bilinear;
@@ -150,13 +146,13 @@
 			}
 			if( EnableDOF )
 			{
-				if (FocalTransform != null)
+				if (DOFFocalTransform != null)
 				{
-					FocalLength = _camera.WorldToScreenPoint( FocalTransform.position ).z;
+					DOFFocalLength = _camera.WorldToScreenPoint( DOFFocalTransform.position ).z;
 				}
-				_material.SetFloat( "_FocalLength", FocalLength / _camera.farClipPlane );
-				_material.SetFloat( "_FocalSize", FocalSize );
-				_material.SetFloat( "_Aperture", Aperture );
+				_material.SetFloat( "_FocalLength", DOFFocalLength / _camera.farClipPlane );
+				_material.SetFloat( "_FocalSize", DOFFocalSize );
+				_material.SetFloat( "_Aperture", DOFAperture );
 				_material.EnableKeyword( "DOF_ON" );
 			}
 			else
@@ -168,17 +164,14 @@
 	
 			RenderTexture.ReleaseTemporary( blurredRT );
 
-			if( EnableRadialBlur )
+			if( EnableRadialBlur && RadialBlurStrength > 0f )
 			{
 				radialBlurredRT = RenderTexture.GetTemporary( srcRT.width / 2, srcRT.height / 2, 0, srcRT.format );
 				radialBlurredRT.filterMode = FilterMode.Bilinear;
 
-				//_material.SetFloat( "_SampleDist", RadialBlurSampleDist );
-				//_material.SetFloat( "_SampleStrength", RadialBlurSampleStrength );
 				_material.SetFloat( "_RadialBlurCenterX", RadialBlurCenterX );
 				_material.SetFloat( "_RadialBlurCenterY", RadialBlurCenterY );
 				_material.SetFloat( "_RadialBlurSampleDistance", RadialBlurSampleDistance );
-				_material.SetFloat( "_RadialBlurSamples", RadialBlurSamples );
 				_material.SetFloat( "_RadialBlurStrength", RadialBlurStrength );
 
 				Graphics.Blit( srcRT, radialBlurredRT, _material, 2 );
@@ -187,11 +180,10 @@
 
 				Graphics.Blit( srcRT, destinationRT, _material, 4 );
 
+				srcRT = null;
+				RenderTexture.ReleaseTemporary( destRT );
 				RenderTexture.ReleaseTemporary( radialBlurredRT );
 			}
-
-			srcRT = null;
-			RenderTexture.ReleaseTemporary( destRT );
 		}
 	}
 }
