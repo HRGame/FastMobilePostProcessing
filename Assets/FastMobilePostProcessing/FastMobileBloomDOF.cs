@@ -10,6 +10,7 @@
 	{
 		public bool EnableBloom = true;
 		public bool EnableDOF = true;
+		public bool EnableRadialBlur = false;
 
 		[Range( 0.25f, 5.5f )]
 		public float BlurSize = 1.0f;
@@ -24,6 +25,19 @@
 		public float FocalLength = 3f;		// 焦点距离（焦点到相机的距离）
 		public float FocalSize = 0.2f;		// 景深大小
 		public float Aperture = 2f;			// 光圈（景深系数，光圈越大景深越浅）
+
+		//[Range( 0.0f, 1f )]
+		//public float RadialBlurSampleDist = 0.2f;
+		//[Range( 0.0f, 10f )]
+		//public float RadialBlurSampleStrength = 3f;
+		[Range( 0.0f, 1.0f )]
+		public float RadialBlurCenterX = 0.5f, RadialBlurCenterY = 0.5f;
+		[Range( -5.0f, 5f )]
+		public float RadialBlurSampleDistance = 1.0f;
+		[Range( 0, 16 )]
+		public int RadialBlurSamples = 8;
+		[Range( 0.0f, 10.0f )]
+		public float RadialBlurStrength = 3.0f;
 
 		Camera _camera;
 		Shader _shader;
@@ -44,14 +58,14 @@
 
 		public override bool CheckResources()
 		{
-			if( !EnableBloom && !EnableDOF )
+			if( !EnableBloom && !EnableDOF && !EnableRadialBlur )
 				return false;
 
 			CheckSupport( EnableDOF );
 
 			if( _shader == null )
 			{
-				_shader = Shader.Find( "Hidden/FastMobileBloom" );
+				_shader = Shader.Find( "Hidden/FastMobilePostProcessing" );
 			}
 			_material = CheckShaderAndCreateMaterial( _shader, _material );
 
@@ -63,52 +77,79 @@
 			return isSupported;
 		}
 
-		void OnRenderImage( RenderTexture source, RenderTexture destination )
+		void OnRenderImage( RenderTexture sourceRT, RenderTexture destinationRT )
 		{
-			if( CheckResources() == false )
+			if( !CheckResources() )
 			{
-				Graphics.Blit( source, destination );
+				Graphics.Blit( sourceRT, destinationRT );
 				return;
 			}
 
 			_camera.depthTextureMode = EnableDOF ? DepthTextureMode.Depth : DepthTextureMode.None;
 
-			// Initial downsample
-			RenderTexture rt = RenderTexture.GetTemporary( source.width / 4, source.height / 4, 0, source.format );
-			rt.filterMode = FilterMode.Bilinear;
+			RenderTexture blurredRT = null;
+			RenderTexture radialBlurredRT = null;
+			RenderTexture srcRT = sourceRT;
+			RenderTexture destRT = destinationRT;
 
-			_material.SetFloat( "_BlurSize", BlurSize );
-			_material.SetFloat( "_BloomThreshold", bloomThreshold );
-			_material.SetFloat( "_BloomIntensity", BloomIntensity );
-			Graphics.Blit( source, rt, _material, 0 );
-
-			// Downscale
-			for( int i = 0; i < BlurIterations - 1; ++i )
+			if( EnableBloom || EnableDOF )
 			{
-				RenderTexture rt2 = RenderTexture.GetTemporary( rt.width / 2, rt.height / 2, 0, source.format );
-				rt2.filterMode = FilterMode.Bilinear;
+				// Initial downsample
+				blurredRT = RenderTexture.GetTemporary( sourceRT.width / 4, sourceRT.height / 4, 0, sourceRT.format );
+				blurredRT.filterMode = FilterMode.Bilinear;
 
-				Graphics.Blit( rt, rt2, _material, 1 );
+				_material.SetFloat( "_BlurSize", BlurSize );
+				if( EnableBloom )
+				{
+					_material.SetFloat( "_BloomThreshold", bloomThreshold );
+					_material.SetFloat( "_BloomIntensity", BloomIntensity );
+				}
+				Graphics.Blit( sourceRT, blurredRT, _material, 0 );
 
-				RenderTexture.ReleaseTemporary( rt );
-				rt = rt2;
+				// Downscale
+				for( int i = 0; i < BlurIterations - 1; ++i )
+				{
+					RenderTexture blurredRT2 = RenderTexture.GetTemporary( blurredRT.width / 2, blurredRT.height / 2, 0, sourceRT.format );
+					blurredRT2.filterMode = FilterMode.Bilinear;
+
+					Graphics.Blit( blurredRT, blurredRT2, _material, 0 );
+
+					RenderTexture.ReleaseTemporary( blurredRT );
+					blurredRT = blurredRT2;
+				}
+				// Upscale
+				for( int i = 0; i < BlurIterations - 1; ++i )
+				{
+					RenderTexture blurredRT2 = RenderTexture.GetTemporary( blurredRT.width * 2, blurredRT.height * 2, 0, sourceRT.format );
+					blurredRT2.filterMode = FilterMode.Bilinear;
+
+					Graphics.Blit( blurredRT, blurredRT2, _material, 1 );
+
+					RenderTexture.ReleaseTemporary( blurredRT );
+					blurredRT = blurredRT2;
+				}
+
+				_material.SetTexture( "_BlurredTex", blurredRT );
+
+				if( EnableRadialBlur )
+				{
+					destRT = RenderTexture.GetTemporary( sourceRT.width, sourceRT.height, 0, sourceRT.format );
+					destRT.filterMode = FilterMode.Bilinear;
+
+					srcRT = destRT;
+				}
 			}
-			// Upscale
-			for( int i = 0; i < BlurIterations - 1; ++i )
+
+			if( EnableBloom )
 			{
-				RenderTexture rt2 = RenderTexture.GetTemporary( rt.width * 2, rt.height * 2, 0, source.format );
-				rt2.filterMode = FilterMode.Bilinear;
-
-				Graphics.Blit( rt, rt2, _material, 2 );
-
-				RenderTexture.ReleaseTemporary( rt );
-				rt = rt2;
+				_material.EnableKeyword( "BLOOM_ON" );
 			}
-
-			_material.SetTexture( "_BlurredTex", rt );
+			else
+			{
+				_material.DisableKeyword( "BLOOM_ON" );
+			}
 			if( EnableDOF )
 			{
-				float focalDistance01;
 				if (FocalTransform != null)
 				{
 					FocalLength = _camera.WorldToScreenPoint( FocalTransform.position ).z;
@@ -116,21 +157,41 @@
 				_material.SetFloat( "_FocalLength", FocalLength / _camera.farClipPlane );
 				_material.SetFloat( "_FocalSize", FocalSize );
 				_material.SetFloat( "_Aperture", Aperture );
+				_material.EnableKeyword( "DOF_ON" );
 			}
-			if( EnableBloom && EnableDOF )
+			else
 			{
-				Graphics.Blit( source, destination, _material, 3 );
-			}
-			else if( EnableBloom )
-			{
-				Graphics.Blit( source, destination, _material, 4 );
-			}
-			else if( EnableDOF )
-			{
-				Graphics.Blit( source, destination, _material, 5 );
+				_material.DisableKeyword( "DOF_ON" );
 			}
 
-			RenderTexture.ReleaseTemporary( rt );
+			Graphics.Blit( sourceRT, destRT, _material, 3 );
+	
+			RenderTexture.ReleaseTemporary( blurredRT );
+
+			if( EnableRadialBlur )
+			{
+				radialBlurredRT = RenderTexture.GetTemporary( srcRT.width / 2, srcRT.height / 2, 0, srcRT.format );
+				radialBlurredRT.filterMode = FilterMode.Bilinear;
+
+				//_material.SetFloat( "_SampleDist", RadialBlurSampleDist );
+				//_material.SetFloat( "_SampleStrength", RadialBlurSampleStrength );
+				_material.SetFloat( "_RadialBlurCenterX", RadialBlurCenterX );
+				_material.SetFloat( "_RadialBlurCenterY", RadialBlurCenterY );
+				_material.SetFloat( "_RadialBlurSampleDistance", RadialBlurSampleDistance );
+				_material.SetFloat( "_RadialBlurSamples", RadialBlurSamples );
+				_material.SetFloat( "_RadialBlurStrength", RadialBlurStrength );
+
+				Graphics.Blit( srcRT, radialBlurredRT, _material, 2 );
+
+				_material.SetTexture( "_RadialBlurredTex", radialBlurredRT );
+
+				Graphics.Blit( srcRT, destinationRT, _material, 4 );
+
+				RenderTexture.ReleaseTemporary( radialBlurredRT );
+			}
+
+			srcRT = null;
+			RenderTexture.ReleaseTemporary( destRT );
 		}
 	}
 }
